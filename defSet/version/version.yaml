@@ -71,21 +71,18 @@
         默认使用图片模式推送设置文件中可修改为原来的模式,
       ],
   }
-- {
-    version: 1.1.1,
-    data:
-      [
-        修复<span class="cmd">#攻略 月莲</span>等新物品时报错问题,
-        修复全部取消up推送时没有成功取消的问题,
-        修复b站转发动态时间不对问题,
-        b站up推送优化，支持只订阅某个up的几种动态消息,
-        例如(只推送直播动态)：<span class="cmd">#订阅up推送 直播 401742377</span>,
-        可以通过<span class="cmd">#推送up列表</span>查看订阅列表详情,
-        添加<span class="cmd">#21点</span>进行21点小游戏,
-        <span class="cmd">叫牌</span>进行要牌,
-        <span class="cmd">停牌</span>停止要牌，对方开始叫牌,
-      ],
-  }
+- version: 1.1.1
+  data:
+    - "修复<span class=\"cmd\">#攻略 月莲</span>等新物品时报错问题"
+    - "修复全部取消up推送时没有成功取消的问题"
+    - "修复b站转发动态时间不对问题"
+    - "b站up推送优化，支持只订阅某个up的几种动态消息"
+    - "例如(只推送直播动态)：<span class=\"cmd\">#订阅up推送 直播 401742377</span>"
+    - "可以通过<span class=\"cmd\">#推送up列表</span>查看订阅列表详情"
+    - "添加<span class=\"cmd\">#21点 [金额]</span>与随机机器人对战21点，默认1000"
+    - "<span class=\"cmd\">叫牌</span>进行要牌"
+    - "<span class=\"cmd\">停牌</span>停止要牌，机器人已停牌"
+
 - {
     version: 1.1.0,
     data:

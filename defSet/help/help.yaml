@@ -90,8 +90,8 @@
 - group: 21点
   list:
     - icon: 绑定账号
-      title: "#21点"
-      desc: 开局21点游戏
+      title: "#21点 [金额]"
+      desc: "与随机机器人对战21点，默认下注1000"
     - icon: 纠缠之缘
       title: "叫牌"
       desc: "21点叫牌"

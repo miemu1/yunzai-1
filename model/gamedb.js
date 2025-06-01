@@ -80,6 +80,13 @@ export default class GameDB {
     await this.write(userId, data);
   }
 
+  static async updateBlackjack(userId, win) {
+    const data = await this.read(userId);
+    data.total.blackjack = (data.total.blackjack || 0) + 1;
+    if (win) data.wins.blackjack = (data.wins.blackjack || 0) + 1;
+    await this.write(userId, data);
+  }
+
   static async getTopCoins(limit = 10) {
     await this.ensureDir();
     const files = await fs.readdir(dataDir);
