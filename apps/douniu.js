@@ -16,6 +16,8 @@ robots.forEach((r) => {
   robotCoins[r.id] = 1000000;
   robotBankrupt[r.id] = 0;
   statsMap[r.id] = { wins: 0, total: 0 };
+  // ensure robot data file
+  GameDB.getCoins(r.id);
 });
 
 const games = {};
@@ -268,6 +270,7 @@ async function changeCoins(player, amount) {
       robotBankrupt[player.user_id]++;
       robotCoins[player.user_id] = 1000000;
     }
+    await GameDB.addCoins(player.user_id, amount);
   } else {
     if (!player.wallet) player.wallet = new Wallet({ user_id: player.user_id });
     if (amount > 0) await player.wallet.add(amount);
