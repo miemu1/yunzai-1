@@ -30,7 +30,8 @@ export class sangong extends plugin {
       priority: 500,
       rule: [
         { reg: "^#*\/?三公(\s*\d+)?$", fnc: "join" },
-        { reg: "^#?加入$", fnc: "join" },
+        { reg: "^加入(三公)?$", fnc: "join" },
+        { reg: "^三公战绩$", fnc: "record" },
       ],
     });
   }
@@ -64,10 +65,10 @@ export class sangong extends plugin {
           bet: game.bet
         });
       }
-      this.e.reply(`@${this.e.sender.card || this.e.user_id} 发起了三公游戏，下注 ${bet} 金币！10秒内输入“加入”可参与！（最多5人）`);
+      this.e.reply(`@${this.e.sender.card || this.e.user_id} 发起了三公游戏，下注 ${bet} 金币！10秒内输入“加入三公”可参与！（最多5人）`);
       clearTimeout(game.timer);
       game.timer = setTimeout(() => startGame(gid, this.e), 10000);
-    } else if (/^#?加入$/.test(raw)) {
+    } else if (/^加入(三公)?$/.test(raw)) {
       const game = games[gid];
       if (!game || game.started) return this.e.reply("暂无等待中的三公游戏");
       if (game.players.find((p) => p.user_id === this.e.user_id)) return this.e.reply("已加入游戏，等待开始");
@@ -86,18 +87,35 @@ export class sangong extends plugin {
         clearTimeout(game.timer);
         startGame(gid, this.e);
       }
-    }
+    } 
+  }
+
+  async record() {
+    GameDB.getCoins(this.e.user_id);
+    const w = new Wallet(this.e);
+    const bal = await w.getBalance();
+    const stats = await GameDB.getStats?.(this.e.user_id, "sangong");
+    const win = stats?.win || 0;
+    const total = stats?.total || 0;
+    const rate = total > 0 ? ((win / total) * 100).toFixed(1) : "0.0";
+    const nick = this.e.sender.card || this.e.nickname || this.e.user_id;
+    this.e.reply(
+      `🎴 三公战绩\n` +
+        `玩家：${nick}\n` +
+        `对局数：${total}\n` +
+        `胜率：${rate}% (${win}/${total})\n` +
+        `当前余额：${bal} 金币`
+    );
   }
 }
 
-function startGame(gid, e) {
+async function startGame(gid, e) {
   const game = games[gid];
   if (!game || game.started) return;
   game.started = true;
 
-  let robotAdded = false;
-  while (game.players.length < 5 && !robotAdded) {
-    const robot = robots[game.players.length % robots.length];
+  if (game.players.length < 2) {
+    const robot = robots[Math.floor(Math.random() * robots.length)];
     let bet = Math.min(game.bet, robotCoins[robot.id]);
     if (robotCoins[robot.id] < game.bet) {
       robotBankrupt[robot.id]++;
@@ -111,7 +129,6 @@ function startGame(gid, e) {
       robot: true,
       bet,
     });
-    robotAdded = true;
   }
 
   const deck = createDeck();
@@ -175,11 +192,23 @@ function startGame(gid, e) {
     }
   }
 
-  msgs.push("\n长期胜率：");
+  msgs.push("\n💼 玩家金币余额：");
+  for (const p of game.players) {
+    let balance = 0;
+    if (p.robot) {
+      balance = robotCoins[p.user_id];
+    } else {
+      if (!p.wallet) p.wallet = new Wallet({ user_id: p.user_id });
+      balance = await p.wallet.getBalance();
+    }
+    msgs.push(`🧍 ${p.nick}：${balance} 金币`);
+  }
+
+  msgs.push("\n📈 玩家长期胜率统计：");
   for (const p of game.players) {
     const s = statsMap[p.user_id] || { wins: 0, total: 0 };
     const rate = s.total > 0 ? ((s.wins / s.total) * 100).toFixed(1) : "0.0";
-    msgs.push(`${p.nick}：${s.wins}/${s.total} 胜 (${rate}%)`);
+    msgs.push(`📊 ${p.nick}：${s.wins}/${s.total} 胜 (${rate}%)`);
   }
 
   e.reply(msgs.join("\n"));
