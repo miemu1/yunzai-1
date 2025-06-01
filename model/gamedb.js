@@ -87,6 +87,20 @@ export default class GameDB {
     await this.write(userId, data);
   }
 
+  /**
+   * 获取指定用户的游戏统计信息
+   * @param {string|number} userId - 用户ID
+   * @param {string} [game="blackjack"] - 游戏名称
+   * @returns {{win:number,total:number}}
+   */
+  static async getStats(userId, game = "blackjack") {
+    const data = await this.read(userId);
+    return {
+      win: data.wins?.[game] || 0,
+      total: data.total?.[game] || 0,
+    };
+  }
+
   static async getTopCoins(limit = 10) {
     await this.ensureDir();
     const files = await fs.readdir(dataDir);
