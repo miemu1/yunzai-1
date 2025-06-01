@@ -202,8 +202,8 @@ export class blackjack extends plugin {
     const sbal = await self.wallet.getBalance();
     const ebal = await enemy.wallet.getBalance();
 
-    const sStats = await GameDB.getStats?.(self.user_id);
-    const eStats = await GameDB.getStats?.(enemy.user_id);
+    const sStats = await GameDB.getStats?.(self.user_id, "blackjack");
+    const eStats = await GameDB.getStats?.(enemy.user_id, "blackjack");
     const sWin = sStats?.win || 0;
     const sTotal = sStats?.total || 0;
     const eWin = eStats?.win || 0;
