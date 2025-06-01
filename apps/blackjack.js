@@ -159,10 +159,10 @@ export class blackjack extends plugin {
       return;
     }
 
-    this.e.reply(
-      `${segment.at(player.user_id).toString()} 请发送“叫牌”或“停牌” (10秒后默认停牌)\n` +
-        this.formatGameState()
-    );
+    this.e.reply([
+      segment.at(player.user_id, player.nick),
+      ` 请发送“叫牌”或“停牌” (10秒后默认停牌)\n` + this.formatGameState(),
+    ]);
 
     clearTimeout(turnTimer[this.group_id]);
     turnTimer[this.group_id] = setTimeout(() => {
@@ -181,7 +181,11 @@ export class blackjack extends plugin {
     const dealer = g.players[0];
     const bet = g.bet;
     const results = [];
-
+    const changes = {};
+    g.players.forEach(p => {
+      changes[p.user_id] = 0;
+    });
+	
     const dealerPoint = this.getPoint(blackjackState[this.group_id][dealer.user_id]);
 
     for (let i = 1; i < g.players.length; i++) {
@@ -190,12 +194,16 @@ export class blackjack extends plugin {
 
       if (p.busted) {
         await this.transferCoins(dealer, p, 1);
-        results.push(`💥 ${p.nick} 爆掉，${dealer.nick} 获胜`);
+        changes[dealer.user_id] += bet;
+        changes[p.user_id] -= bet;
+        results.push(`💥 ${p.nick} 爆掉，${dealer.nick} 获胜，损失 ${bet} 金币`);
         continue;
       }
 
       if (dealerPoint > 21 || point > dealerPoint) {
         await this.transferCoins(p, dealer, 1);
+        changes[p.user_id] += bet;
+        changes[dealer.user_id] -= bet;
         results.push(`🎉 ${p.nick} 战胜庄家，获得 ${bet} 金币`);
       } else if (point === dealerPoint) {
         await dealer.wallet.add(bet);
@@ -205,6 +213,9 @@ export class blackjack extends plugin {
         results.push(`⚖️ ${p.nick} 与庄家平局`);
       } else {
         await this.transferCoins(dealer, p, 1);
+        changes[dealer.user_id] += bet;
+        changes[p.user_id] -= bet;
+        results.push(`😢 ${p.nick} 输给庄家，损失 ${bet} 金币`);
         results.push(`😢 ${p.nick} 输给庄家`);
       }
     }
@@ -220,8 +231,15 @@ export class blackjack extends plugin {
       })
     );
 
+    const changeLines = g.players.map(p => {
+      const c = changes[p.user_id];
+      if (!c) return `📊 ${p.nick} 本局未获金币`;
+      return `📊 ${p.nick} ${c > 0 ? "赢得" : "输掉"} ${Math.abs(c)} 金币`;
+    });
+
     let msg = this.formatGameState();
     msg += `\n${statusList.join("\n")}`;
+    msg += `\n${changeLines.join("\n")}`;
     msg += `\n${results.join("\n")}`;
 
     await this.e.reply(msg);
