@@ -1,4 +1,4 @@
-// 优化后的完整 blackjack 插件代码（文件名应为 blackjack.js）
+// blackjack.js - 修复胜率统计显示的版本
 
 import plugin from "../../../lib/plugins/plugin.js";
 import { segment } from "oicq";
@@ -24,18 +24,9 @@ export class blackjack extends plugin {
       event: "message.group",
       priority: 500,
       rule: [
-        {
-          reg: "^#*21(点)?(\\s*\\d+)?$",
-          fnc: "startBlackjack",
-        },
-        {
-          reg: "^(#)?叫牌$",
-          fnc: "deal",
-        },
-        {
-          reg: "^(#)?停牌$",
-          fnc: "stop",
-        },
+        { reg: "^#*21(点)?(\\s*\\d+)?$", fnc: "startBlackjack" },
+        { reg: "^(#)?叫牌$", fnc: "deal" },
+        { reg: "^(#)?停牌$", fnc: "stop" },
       ],
     });
   }
@@ -81,7 +72,7 @@ export class blackjack extends plugin {
     blackjaceState[this.group_id][this.e.sender.user_id] = [];
 
     this.drawCard(this.e.sender.user_id);
-    while (this.getPoint(blackjaceState[this.group_id][robot.id]) < 19) {
+    while (this.getPoint(blackjaceState[this.group_id][robot.id]) < 18) {
       this.drawCard(robot.id);
     }
 
@@ -117,8 +108,7 @@ export class blackjack extends plugin {
 
     const userId = this.e.sender.user_id;
     this.drawCard(userId);
-    const playerCards = blackjaceState[this.group_id][userId];
-    const playerPoint = this.getPoint(playerCards);
+    const playerPoint = this.getPoint(blackjaceState[this.group_id][userId]);
 
     if (playerPoint > 21) return this.endGame("爆掉");
 
@@ -198,7 +188,6 @@ export class blackjack extends plugin {
       await this.transferCoins(winnerPlayer, loser, 1);
       resultMsg = `💥 ${loser.nick} 爆掉，${winnerPlayer.nick} 获胜！`;
     } else if (winner === "平局") {
-      // 平局，返还下注金额
       await self.wallet.add(bet);
       await enemy.wallet.add(bet);
       await GameDB.updateBlackjack(self.user_id, false);
@@ -213,8 +202,15 @@ export class blackjack extends plugin {
     const sbal = await self.wallet.getBalance();
     const ebal = await enemy.wallet.getBalance();
 
-    msg += `\n📈 玩家余额：${sbal} 金币`;
-    msg += `\n📉 机器人余额：${ebal} 金币`;
+    const sStats = await GameDB.getStats?.(self.user_id);
+    const eStats = await GameDB.getStats?.(enemy.user_id);
+    const sWin = sStats?.win || 0;
+    const sTotal = sStats?.total || 0;
+    const eWin = eStats?.win || 0;
+    const eTotal = eStats?.total || 0;
+
+    msg += `\n📈 玩家余额：${sbal} 金币｜胜率：${sTotal ? ((sWin/sTotal)*100).toFixed(1) : 0}% (${sWin}/${sTotal})`;
+    msg += `\n📉 机器人余额：${ebal} 金币｜胜率：${eTotal ? ((eWin/eTotal)*100).toFixed(1) : 0}% (${eWin}/${eTotal})`;
 
     this.e.reply(`${msg}\n\n${resultMsg}`);
     this.clearGame();
