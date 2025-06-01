@@ -54,6 +54,14 @@ export class gobang extends plugin {
     await this.getGroupId();
     if (!this.group_id) return;
 
+    const Wallet = (await import("../model/wallet.js")).default;
+    const w = new Wallet(this.e);
+    const bal = await w.getBalance();
+    if (bal <= 0) {
+      this.e.reply("金币不足，无法开始五子棋");
+      return;
+    }
+
     if (!gameing[this.group_id]) gameing[this.group_id] = {};
 
     if (gameing && gameing[this.group_id] && gameing[this.group_id].self) {
@@ -120,6 +128,13 @@ export class gobang extends plugin {
       gameing[this.group_id].self.user_id !== this.e.sender.user_id &&
       !gameing[this.group_id].enemy
     ) {
+      const Wallet = (await import("../model/wallet.js")).default;
+      const w = new Wallet(this.e);
+      const bal = await w.getBalance();
+      if (bal <= 0) {
+        this.e.reply("金币不足，无法参与五子棋");
+        return;
+      }
       gameing[this.group_id].enemy = { user_id: this.e.sender.user_id };
     }
 
