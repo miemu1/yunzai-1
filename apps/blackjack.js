@@ -1,4 +1,4 @@
-// blackjack.js - 修复胜率统计显示和结算信息增强版本
+// blackjack.js - 21点玩法强化：21点爆击、庄家通吃
 
 import plugin from "../../../lib/plugins/plugin.js";
 import { segment } from "oicq";
@@ -116,7 +116,6 @@ export class blackjack extends plugin {
       }
     }
 
-    await this.e.reply(this.formatGameState());
     this.nextTurn();
   }
 
@@ -175,52 +174,73 @@ export class blackjack extends plugin {
   async finishGame() {
     const g = gaming[this.group_id];
     if (!g) return;
-
     clearTimeout(turnTimer[this.group_id]);
 
     const dealer = g.players[0];
     const bet = g.bet;
     const results = [];
     const changes = {};
-    g.players.forEach(p => {
-      changes[p.user_id] = 0;
-    });
-	
+    g.players.forEach(p => changes[p.user_id] = 0);
+
     const dealerPoint = this.getPoint(blackjackState[this.group_id][dealer.user_id]);
+    const allBusted = g.players.every(p => p.busted);
+    const isDealerBlackjack = dealerPoint === 21 && !dealer.busted;
 
-    for (let i = 1; i < g.players.length; i++) {
-      const p = g.players[i];
-      const point = this.getPoint(blackjackState[this.group_id][p.user_id]);
-
-      if (p.busted) {
+    if (allBusted) {
+      for (let i = 1; i < g.players.length; i++) {
+        const p = g.players[i];
         await this.transferCoins(dealer, p, 1);
         changes[dealer.user_id] += bet;
         changes[p.user_id] -= bet;
-        results.push(`💥 ${p.nick} 爆掉，${dealer.nick} 获胜，损失 ${bet} 金币`);
-        continue;
+        results.push(`💥 ${p.nick} 爆掉，全员爆牌，庄家通吃，损失 ${bet} 金币`);
       }
+    } else {
+      for (let i = 1; i < g.players.length; i++) {
+        const p = g.players[i];
+        const point = this.getPoint(blackjackState[this.group_id][p.user_id]);
+        const isPlayerBJ = point === 21 && !p.busted;
 
-      if (dealerPoint > 21 || point > dealerPoint) {
-        await this.transferCoins(p, dealer, 1);
-        changes[p.user_id] += bet;
-        changes[dealer.user_id] -= bet;
-        results.push(`🎉 ${p.nick} 战胜庄家，获得 ${bet} 金币`);
-      } else if (point === dealerPoint) {
-        await dealer.wallet.add(bet);
-        await p.wallet.add(bet);
-        await GameDB.updateBlackjack(dealer.user_id, false);
-        await GameDB.updateBlackjack(p.user_id, false);
-        results.push(`⚖️ ${p.nick} 与庄家平局`);
-      } else {
-        await this.transferCoins(dealer, p, 1);
-        changes[dealer.user_id] += bet;
-        changes[p.user_id] -= bet;
-        results.push(`😢 ${p.nick} 输给庄家，损失 ${bet} 金币`);
-        results.push(`😢 ${p.nick} 输给庄家`);
+        if (isDealerBlackjack && isPlayerBJ) {
+          await this.transferCoins(dealer, p, 1);
+          changes[dealer.user_id] += bet;
+          changes[p.user_id] -= bet;
+          results.push(`🏆 ${dealer.nick} 与 ${p.nick} 均为21点，庄家通吃，${p.nick} 损失 ${bet} 金币`);
+          continue;
+        }
+
+        if (p.busted) {
+          await this.transferCoins(dealer, p, 1);
+          changes[dealer.user_id] += bet;
+          changes[p.user_id] -= bet;
+          results.push(`💥 ${p.nick} 爆掉，${dealer.nick} 获胜，损失 ${bet} 金币`);
+          continue;
+        }
+
+        if (isPlayerBJ) {
+          await this.transferCoins(p, dealer, 5);
+          changes[p.user_id] += bet * 5;
+          changes[dealer.user_id] -= bet * 5;
+          results.push(`🎉 ${p.nick} 爆击21点，赢得5倍奖励 ${bet * 5} 金币`);
+        } else if (dealerPoint > 21 || point > dealerPoint) {
+          await this.transferCoins(p, dealer, 1);
+          changes[p.user_id] += bet;
+          changes[dealer.user_id] -= bet;
+          results.push(`🎉 ${p.nick} 战胜庄家，获得 ${bet} 金币`);
+        } else if (point === dealerPoint) {
+          await dealer.wallet.add(bet);
+          await p.wallet.add(bet);
+          await GameDB.updateBlackjack(dealer.user_id, false);
+          await GameDB.updateBlackjack(p.user_id, false);
+          results.push(`⚖️ ${p.nick} 与庄家平局`);
+        } else {
+          await this.transferCoins(dealer, p, 1);
+          changes[dealer.user_id] += bet;
+          changes[p.user_id] -= bet;
+          results.push(`😢 ${p.nick} 输给庄家，损失 ${bet} 金币`);
+        }
       }
     }
 
-    // 每个玩家信息展示
     const statusList = await Promise.all(
       g.players.map(async p => {
         const bal = await p.wallet.getBalance();
@@ -249,7 +269,7 @@ export class blackjack extends plugin {
   async deal() {
     await this.getGroupId();
     const g = gaming[this.group_id];
-    if (!g) return this.e.reply("没有进行中的21点游戏");
+    if (!g || !g.state) return this.e.reply("没有进行中的21点游戏");
 
     const userId = this.e.sender.user_id;
 
@@ -269,7 +289,7 @@ export class blackjack extends plugin {
     }
 
     const player = g.players[g.current];
-    if (player.user_id !== userId) return;
+    if (!player || player.user_id !== userId) return;
 
     clearTimeout(turnTimer[this.group_id]);
     this.drawCard(userId);
@@ -283,12 +303,7 @@ export class blackjack extends plugin {
       return;
     }
 
-    await this.e.reply(this.formatGameState());
-    turnTimer[this.group_id] = setTimeout(() => {
-      player.stopped = true;
-      g.current++;
-      this.nextTurn();
-    }, 10000);
+    this.nextTurn();
   }
 
   async stop() {
@@ -352,8 +367,8 @@ export class blackjack extends plugin {
   }
 
   clearGame() {
-    gaming[this.group_id] = {};
-    blackjackState[this.group_id] = {};
+    delete gaming[this.group_id];
+    delete blackjackState[this.group_id];
     blackjackTimer[this.group_id] && clearTimeout(blackjackTimer[this.group_id]);
     clearTimeout(joinTimer[this.group_id]);
     clearTimeout(turnTimer[this.group_id]);
