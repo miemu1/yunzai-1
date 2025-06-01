@@ -1,12 +1,13 @@
-// blackjack.js - 修复胜率统计显示的版本
+// blackjack.js - 修复胜率统计显示和结算信息增强版本
 
 import plugin from "../../../lib/plugins/plugin.js";
 import { segment } from "oicq";
 import GameDB from "../model/gamedb.js";
 
-let blackjaceState = {};
-let count = {};
-let gameing = {};
+let blackjackState = {};
+let gaming = {};
+let joinTimer = {};
+let turnTimer = {};
 const robots = [
   { name: "春", id: "bot_spring" },
   { name: "夏", id: "bot_summer" },
@@ -48,103 +49,255 @@ export class blackjack extends plugin {
     const bal = await w.getBalance();
     if (bal < bet) return this.e.reply("金币不足，无法开始21点");
 
-    if (!gameing[this.group_id]) gameing[this.group_id] = {};
-    if (gameing[this.group_id].self) return this.e.reply("游戏正在进行中");
+    if (gaming[this.group_id]?.state) return this.e.reply("游戏正在进行中");
 
     this.initArray();
-    gameing[this.group_id].self = {
-      user_id: this.e.sender.user_id,
-      nick: this.e.sender.card || this.e.user_id,
-      wallet: w,
+    gaming[this.group_id] = {
+      bet,
+      state: "waiting",
+      players: [
+        {
+          user_id: this.e.sender.user_id,
+          nick: this.e.sender.card || this.e.user_id,
+          wallet: w,
+          robot: false,
+          busted: false,
+          stopped: false,
+        },
+      ],
+      current: 0,
     };
 
-    const robot = robots[Math.floor(Math.random() * robots.length)];
-    const robotWallet = new Wallet({ user_id: robot.id });
-    await GameDB.getCoins(robot.id);
-    gameing[this.group_id].enemy = {
-      user_id: robot.id,
-      nick: robot.name,
-      robot: true,
-      wallet: robotWallet,
-    };
-    gameing[this.group_id].bet = bet;
-    blackjaceState[this.group_id][robot.id] = [];
-    blackjaceState[this.group_id][this.e.sender.user_id] = [];
+    blackjackState[this.group_id] = {};
 
-    this.drawCard(this.e.sender.user_id);
-    while (this.getPoint(blackjaceState[this.group_id][robot.id]) < 18) {
-      this.drawCard(robot.id);
-    }
+    this.e.reply(
+      `🎮 ${this.e.sender.card || this.e.user_id} 发起了 21点 对局！\n` +
+        `💰 下注金额：${bet} 金币\n` +
+        `👉 10秒内发送“叫牌”即可加入游戏（最多4人）`
+    );
 
-    count[this.group_id] = 1;
-    const message = [
-      `🎮 ${this.e.sender.card || this.e.user_id} 发起了 21点 对局！`,
-      `🤖 对手：${robot.name}`,
-      `💰 下注金额：${bet} 金币`,
-      `\n发送“叫牌”开始要牌，或发送“停牌”结束回合`,
-    ];
+    joinTimer[this.group_id] = setTimeout(() => this.beginGame(), 10000);
 
     blackjackTimer[this.group_id] && clearTimeout(blackjackTimer[this.group_id]);
     blackjackTimer[this.group_id] = setTimeout(() => {
-      gameing[this.group_id] = {};
-      count[this.group_id] = 0;
-      blackjaceState[this.group_id] = {};
+      this.clearGame();
       this.e.reply("⚠️ 对战超时，游戏已结束");
     }, 1000 * 60 * 3);
+  }
 
-    this.e.reply(message.join("\n"));
+  async beginGame() {
+    const g = gaming[this.group_id];
+    if (!g || g.state !== "waiting") return;
+
+    clearTimeout(joinTimer[this.group_id]);
+
+    const Wallet = (await import("../model/wallet.js")).default;
+    const robot = robots[Math.floor(Math.random() * robots.length)];
+    const robotWallet = new Wallet({ user_id: robot.id });
+    await GameDB.getCoins(robot.id);
+    g.players.push({
+      user_id: robot.id,
+      nick: robot.name,
+      wallet: robotWallet,
+      robot: true,
+      busted: false,
+      stopped: false,
+    });
+
+    g.state = "playing";
+    blackjackState[this.group_id] = {};
+
+    for (const p of g.players) {
+      blackjackState[this.group_id][p.user_id] = [];
+      this.drawCard(p.user_id);
+      this.drawCard(p.user_id);
+      if (this.getPoint(blackjackState[this.group_id][p.user_id]) > 21) {
+        p.busted = true;
+      }
+    }
+
+    await this.e.reply(this.formatGameState());
+    this.nextTurn();
   }
 
   drawCard(userId) {
     const deck = cards[this.group_id];
     const index = Math.floor(Math.random() * deck.length);
     const card = deck.splice(index, 1)[0];
-    blackjaceState[this.group_id][userId].push(card);
+    blackjackState[this.group_id][userId].push(card);
+  }
+
+  nextTurn() {
+    const g = gaming[this.group_id];
+    if (!g || g.state !== "playing") return;
+
+    const alive = g.players.some(p => !p.stopped && !p.busted);
+    if (!alive) {
+      this.finishGame();
+      return;
+    }
+
+    g.current = g.current % g.players.length;
+    const player = g.players[g.current];
+    if (player.stopped || player.busted) {
+      g.current++;
+      this.nextTurn();
+      return;
+    }
+
+    if (player.robot) {
+      while (this.getPoint(blackjackState[this.group_id][player.user_id]) < 17) {
+        this.drawCard(player.user_id);
+      }
+      if (this.getPoint(blackjackState[this.group_id][player.user_id]) > 21) {
+        player.busted = true;
+      } else {
+        player.stopped = true;
+      }
+      g.current++;
+      this.nextTurn();
+      return;
+    }
+
+    this.e.reply(
+      `${segment.at(player.user_id).toString()} 请发送“叫牌”或“停牌” (10秒后默认停牌)\n` +
+        this.formatGameState()
+    );
+
+    clearTimeout(turnTimer[this.group_id]);
+    turnTimer[this.group_id] = setTimeout(() => {
+      player.stopped = true;
+      g.current++;
+      this.nextTurn();
+    }, 10000);
+  }
+
+  async finishGame() {
+    const g = gaming[this.group_id];
+    if (!g) return;
+
+    clearTimeout(turnTimer[this.group_id]);
+
+    const dealer = g.players[0];
+    const bet = g.bet;
+    const results = [];
+
+    const dealerPoint = this.getPoint(blackjackState[this.group_id][dealer.user_id]);
+
+    for (let i = 1; i < g.players.length; i++) {
+      const p = g.players[i];
+      const point = this.getPoint(blackjackState[this.group_id][p.user_id]);
+
+      if (p.busted) {
+        await this.transferCoins(dealer, p, 1);
+        results.push(`💥 ${p.nick} 爆掉，${dealer.nick} 获胜`);
+        continue;
+      }
+
+      if (dealerPoint > 21 || point > dealerPoint) {
+        await this.transferCoins(p, dealer, 1);
+        results.push(`🎉 ${p.nick} 战胜庄家，获得 ${bet} 金币`);
+      } else if (point === dealerPoint) {
+        await dealer.wallet.add(bet);
+        await p.wallet.add(bet);
+        await GameDB.updateBlackjack(dealer.user_id, false);
+        await GameDB.updateBlackjack(p.user_id, false);
+        results.push(`⚖️ ${p.nick} 与庄家平局`);
+      } else {
+        await this.transferCoins(dealer, p, 1);
+        results.push(`😢 ${p.nick} 输给庄家`);
+      }
+    }
+
+    // 每个玩家信息展示
+    const statusList = await Promise.all(
+      g.players.map(async p => {
+        const bal = await p.wallet.getBalance();
+        const stats = await GameDB.getStats?.(p.user_id, "blackjack");
+        const win = stats?.win || 0;
+        const total = stats?.total || 0;
+        return `📌 ${p.robot ? "🤖" : "👤"} ${p.nick}｜余额：${bal}｜胜率：${total ? ((win / total) * 100).toFixed(1) : 0}% (${win}/${total})`;
+      })
+    );
+
+    let msg = this.formatGameState();
+    msg += `\n${statusList.join("\n")}`;
+    msg += `\n${results.join("\n")}`;
+
+    await this.e.reply(msg);
+    this.clearGame();
   }
 
   async deal() {
     await this.getGroupId();
-    if (!this.group_id || !gameing[this.group_id]?.self) return this.e.reply("没有进行中的21点游戏");
+    const g = gaming[this.group_id];
+    if (!g) return this.e.reply("没有进行中的21点游戏");
 
     const userId = this.e.sender.user_id;
+
+    if (g.state === "waiting") {
+      if (g.players.find(p => p.user_id === userId)) return this.e.reply("已加入游戏");
+      if (g.players.length >= 4) return this.e.reply("人数已满");
+
+      const Wallet = (await import("../model/wallet.js")).default;
+      const w = new Wallet(this.e);
+      const bal = await w.getBalance();
+      if (bal < g.bet) return this.e.reply("金币不足，无法加入");
+
+      g.players.push({ user_id, nick: this.e.sender.card || userId, wallet: w, robot: false, busted: false, stopped: false });
+      this.e.reply(`${this.e.sender.card || userId} 加入了游戏`);
+      if (g.players.length >= 4) this.beginGame();
+      return;
+    }
+
+    const player = g.players[g.current];
+    if (player.user_id !== userId) return;
+
+    clearTimeout(turnTimer[this.group_id]);
     this.drawCard(userId);
-    const playerPoint = this.getPoint(blackjaceState[this.group_id][userId]);
+    const playerPoint = this.getPoint(blackjackState[this.group_id][userId]);
 
-    if (playerPoint > 21) return this.endGame("爆掉");
+    if (playerPoint > 21) {
+      player.busted = true;
+      await this.e.reply(this.formatGameState() + `\n💥 ${player.nick} 爆掉`);
+      g.current++;
+      this.nextTurn();
+      return;
+    }
 
-    let msg = this.formatGameState();
-    msg += `\n\n👉 当前 ${playerPoint} 点。继续请发送“叫牌”，结束请发送“停牌”`;
-
-    this.resetTimer();
-    this.e.reply(msg);
+    await this.e.reply(this.formatGameState());
+    turnTimer[this.group_id] = setTimeout(() => {
+      player.stopped = true;
+      g.current++;
+      this.nextTurn();
+    }, 10000);
   }
 
   async stop() {
     await this.getGroupId();
-    if (!this.group_id || !gameing[this.group_id]?.self) return this.e.reply("没有进行中的21点游戏");
+    const g = gaming[this.group_id];
+    if (!g || g.state !== "playing") return this.e.reply("没有进行中的21点游戏");
 
-    const self = gameing[this.group_id].self;
-    const enemy = gameing[this.group_id].enemy;
-    const selfPoint = this.getPoint(blackjaceState[this.group_id][self.user_id]);
-    const enemyPoint = this.getPoint(blackjaceState[this.group_id][enemy.user_id]);
+    const player = g.players[g.current];
+    if (player.user_id !== this.e.user_id) return;
 
-    let result = "平局";
-    if (selfPoint > 21) result = "爆掉";
-    else if (enemyPoint > 21 || selfPoint > enemyPoint) result = self;
-    else if (enemyPoint > selfPoint) result = enemy;
-
-    await this.settleResult(result);
+    clearTimeout(turnTimer[this.group_id]);
+    player.stopped = true;
+    g.current++;
+    this.nextTurn();
   }
 
   formatGameState() {
-    const state = blackjaceState[this.group_id];
-    const self = gameing[this.group_id].self;
-    const enemy = gameing[this.group_id].enemy;
+    const state = blackjackState[this.group_id];
+    const g = gaming[this.group_id];
+    if (!g) return "";
 
     let msg = "📋 当前牌局：\n";
-    msg += `👤 ${self.nick}：` + this.cardList(state[self.user_id]) + ` = ${this.getPoint(state[self.user_id])} 点\n`;
-    msg += `🤖 ${enemy.nick}：` + this.cardList(state[enemy.user_id]) + ` = ${this.getPoint(state[enemy.user_id])} 点\n`;
-    return msg;
+    g.players.forEach((p, idx) => {
+      const role = p.robot ? "🤖" : idx === 0 ? "庄" : "👤";
+      msg += `${role} ${p.nick}：` + this.cardList(state[p.user_id]) + ` = ${this.getPoint(state[p.user_id])} 点\n`;
+    });
+    return msg.trim();
   }
 
   cardList(cards) {
@@ -172,52 +325,8 @@ export class blackjack extends plugin {
     return point;
   }
 
-  async settleResult(winner) {
-    const bet = gameing[this.group_id].bet;
-    const self = gameing[this.group_id].self;
-    const enemy = gameing[this.group_id].enemy;
-    let msg = this.formatGameState();
-    let resultMsg = "";
-
-    const selfPoint = this.getPoint(blackjaceState[this.group_id][self.user_id]);
-    const enemyPoint = this.getPoint(blackjaceState[this.group_id][enemy.user_id]);
-
-    if (winner === "爆掉") {
-      const loser = self.user_id === this.e.user_id ? self : enemy;
-      const winnerPlayer = loser.user_id === self.user_id ? enemy : self;
-      await this.transferCoins(winnerPlayer, loser, 1);
-      resultMsg = `💥 ${loser.nick} 爆掉，${winnerPlayer.nick} 获胜！`;
-    } else if (winner === "平局") {
-      await self.wallet.add(bet);
-      await enemy.wallet.add(bet);
-      await GameDB.updateBlackjack(self.user_id, false);
-      await GameDB.updateBlackjack(enemy.user_id, false);
-      resultMsg = "⚖️ 平局，返还双方下注金币";
-    } else {
-      let multiplier = (this.getPoint(blackjaceState[this.group_id][winner.user_id]) === 21) ? 5 : 1;
-      await this.transferCoins(winner, winner.user_id === self.user_id ? enemy : self, multiplier);
-      resultMsg = `🎉 ${winner.nick} 获胜，获得 ${bet * multiplier} 金币！`;
-    }
-
-    const sbal = await self.wallet.getBalance();
-    const ebal = await enemy.wallet.getBalance();
-
-    const sStats = await GameDB.getStats?.(self.user_id, "blackjack");
-    const eStats = await GameDB.getStats?.(enemy.user_id, "blackjack");
-    const sWin = sStats?.win || 0;
-    const sTotal = sStats?.total || 0;
-    const eWin = eStats?.win || 0;
-    const eTotal = eStats?.total || 0;
-
-    msg += `\n📈 玩家余额：${sbal} 金币｜胜率：${sTotal ? ((sWin/sTotal)*100).toFixed(1) : 0}% (${sWin}/${sTotal})`;
-    msg += `\n📉 机器人余额：${ebal} 金币｜胜率：${eTotal ? ((eWin/eTotal)*100).toFixed(1) : 0}% (${eWin}/${eTotal})`;
-
-    this.e.reply(`${msg}\n\n${resultMsg}`);
-    this.clearGame();
-  }
-
   async transferCoins(winner, loser, multiplier = 1) {
-    const bet = gameing[this.group_id].bet * multiplier;
+    const bet = gaming[this.group_id].bet * multiplier;
     await winner.wallet.add(bet);
     await loser.wallet.deduct(bet);
     await GameDB.updateBlackjack(winner.user_id, true);
@@ -225,10 +334,11 @@ export class blackjack extends plugin {
   }
 
   clearGame() {
-    gameing[this.group_id] = {};
-    count[this.group_id] = 0;
-    blackjaceState[this.group_id] = {};
+    gaming[this.group_id] = {};
+    blackjackState[this.group_id] = {};
     blackjackTimer[this.group_id] && clearTimeout(blackjackTimer[this.group_id]);
+    clearTimeout(joinTimer[this.group_id]);
+    clearTimeout(turnTimer[this.group_id]);
   }
 
   resetTimer() {
@@ -244,9 +354,11 @@ export class blackjack extends plugin {
     cards[this.group_id] = [];
     const suits = ["♠️", "♣️", "♥️", "♦️"];
     const points = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
-    for (let suit of suits) {
-      for (let pt of points) {
-        cards[this.group_id].push([suit, pt]);
+    for (let deck = 0; deck < 4; deck++) {
+      for (let suit of suits) {
+        for (let pt of points) {
+          cards[this.group_id].push([suit, pt]);
+        }
       }
     }
   }
