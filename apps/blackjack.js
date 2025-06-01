@@ -182,18 +182,20 @@ export class blackjack extends plugin {
     const changes = {};
     g.players.forEach(p => changes[p.user_id] = 0);
 
-    const dealerPoint = this.getPoint(blackjackState[this.group_id][dealer.user_id]);
-    const allBusted = g.players.every(p => p.busted);
+    const dealerPoint = this.getPoint(
+      blackjackState[this.group_id][dealer.user_id]
+    );
+    const allBusted = g.players.every((p) => p.busted);
     const isDealerBlackjack = dealerPoint === 21 && !dealer.busted;
 
     if (allBusted) {
-      for (let i = 1; i < g.players.length; i++) {
-        const p = g.players[i];
-        await this.transferCoins(dealer, p, 1);
-        changes[dealer.user_id] += bet;
+      for (const p of g.players) {
+        await p.wallet.deduct(bet);
+        await GameDB.updateBlackjack(p.user_id, false);
         changes[p.user_id] -= bet;
-        results.push(`💥 ${p.nick} 爆掉，全员爆牌，庄家通吃，损失 ${bet} 金币`);
+        results.push(`💥 ${p.nick} 爆掉，损失 ${bet} 金币`);
       }
+      results.push("🏴‍☠️ 全员爆牌，无人获胜");
     } else {
       for (let i = 1; i < g.players.length; i++) {
         const p = g.players[i];

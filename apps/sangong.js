@@ -1,4 +1,5 @@
-import plugin from "../../../lib/plugins/plugin.js";
+// Adjust import path to local plugin base
+import plugin from "../lib/plugins/plugin.js";
 import Wallet from "../model/wallet.js";
 import GameDB from "../model/gamedb.js";
 
@@ -112,6 +113,11 @@ export class sangong extends plugin {
 async function startGame(gid, e) {
   const game = games[gid];
   if (!game || game.started) return;
+  // clear countdown timer once the game starts
+  if (game.timer) {
+    clearTimeout(game.timer);
+    game.timer = null;
+  }
   game.started = true;
 
   if (game.players.length < 2) {
@@ -214,6 +220,7 @@ async function startGame(gid, e) {
   e.reply(msgs.join("\n"));
   game.started = false;
   game.players = [];
+  game.timer = null;
 }
 
 function updateStats(uid, win) {
