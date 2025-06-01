@@ -16,8 +16,8 @@ export default class GameDB {
     return {
       user_id: userId,
       coins: String(userId).startsWith("bot_") ? 1000000 : 10000,
-      wins: { gobang: 0, blackjack: 0, douniu: 0 },
-      total: { gobang: 0, blackjack: 0, douniu: 0 },
+      wins: { gobang: 0, blackjack: 0, douniu: 0, sangong: 0 },
+      total: { gobang: 0, blackjack: 0, douniu: 0, sangong: 0 },
     };
   }
 
@@ -36,7 +36,14 @@ export default class GameDB {
     await this.ensureUser(userId);
     const file = this.file(userId);
     const content = await fs.readFile(file, "utf8");
-    return JSON.parse(content);
+    try {
+      return JSON.parse(content);
+    } catch (e) {
+      console.error(`[GameDB] JSON 解析失败: ${file}`, e.message);
+      const data = this.defaultData(userId);
+      await this.write(userId, data); // 自动重建文件
+      return data;
+    }
   }
 
   static async write(userId, data) {
@@ -87,12 +94,13 @@ export default class GameDB {
     await this.write(userId, data);
   }
 
-  /**
-   * 获取指定用户的游戏统计信息
-   * @param {string|number} userId - 用户ID
-   * @param {string} [game="blackjack"] - 游戏名称
-   * @returns {{win:number,total:number}}
-   */
+  static async updateSangong(userId, win) {
+    const data = await this.read(userId);
+    data.total.sangong = (data.total.sangong || 0) + 1;
+    if (win) data.wins.sangong = (data.wins.sangong || 0) + 1;
+    await this.write(userId, data);
+  }
+
   static async getStats(userId, game = "blackjack") {
     const data = await this.read(userId);
     return {
@@ -107,13 +115,15 @@ export default class GameDB {
     const players = [];
     for (const file of files) {
       if (!file.endsWith('.json')) continue;
-      const json = JSON.parse(
-        await fs.readFile(path.join(dataDir, file), 'utf8')
-      );
-      players.push({
-        user_id: json.user_id || file.replace('.json', ''),
-        coins: json.coins || 0,
-      });
+      try {
+        const json = JSON.parse(await fs.readFile(path.join(dataDir, file), 'utf8'));
+        players.push({
+          user_id: json.user_id || file.replace('.json', ''),
+          coins: json.coins || 0,
+        });
+      } catch (e) {
+        console.error(`[GameDB] 读取排行榜文件失败: ${file}`, e.message);
+      }
     }
     players.sort((a, b) => b.coins - a.coins);
     return players.slice(0, limit);
