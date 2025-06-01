@@ -1,0 +1,14 @@
+{
+  "user_id": "bot_summer",
+  "coins": 998000,
+  "wins": {
+    "gobang": 0,
+    "blackjack": 0,
+    "douniu": 0
+  },
+  "total": {
+    "gobang": 0,
+    "blackjack": 0,
+    "douniu": 1
+  }
+}

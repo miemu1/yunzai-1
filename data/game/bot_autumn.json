@@ -1,0 +1,14 @@
+{
+  "user_id": "bot_autumn",
+  "coins": 1008000,
+  "wins": {
+    "gobang": 0,
+    "blackjack": 0,
+    "douniu": 4
+  },
+  "total": {
+    "gobang": 0,
+    "blackjack": 0,
+    "douniu": 4
+  }
+}
