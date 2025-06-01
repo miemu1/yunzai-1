@@ -1,5 +1,6 @@
 import plugin from "../../../lib/plugins/plugin.js";
 import Wallet from "../model/wallet.js";
+import GameDB from "../model/gamedb.js";
 
 const robots = [
   { name: "春", id: "bot_spring" },
@@ -42,6 +43,9 @@ export class douniu extends plugin {
     if (isNaN(bet)) bet = 1000;
     if (bet < 10) bet = 10;
 
+    // ensure user record
+    GameDB.getCoins(this.e.user_id);
+
     const w = new Wallet(this.e);
     const bal = await w.getBalance();
     if (bal < bet) {
@@ -61,7 +65,7 @@ export class douniu extends plugin {
     }
 
     if (game.players.find((p) => p.user_id === this.e.user_id)) {
-      this.e.reply(`?? 已加入游戏，玩家在10秒内发送例如"斗牛 1000"即可加入本局游戏,10秒后自动开始。`);
+      this.e.reply(`?? 已加入游戏，等待开始。`);
       return;
     }
 
@@ -72,7 +76,7 @@ export class douniu extends plugin {
       wallet: w,
     });
 
-    this.e.reply(`✅ ${this.e.sender.card || this.e.user_id} 已加入斗牛，下注 ${bet} 金币`);
+    this.e.reply(`✅ ${this.e.sender.card || this.e.user_id} 已加入斗牛，下注 ${bet} 金币，其他玩家可以在10秒内发送例如"斗牛 1000"即可加入本局游戏,10秒后自动开始。`);
 
     if (game.players.length === 1) {
       game.timer && clearTimeout(game.timer);
@@ -196,6 +200,7 @@ function updateStats(uid, win) {
   if (!statsMap[uid]) statsMap[uid] = { wins: 0, total: 0 };
   statsMap[uid].total++;
   if (win) statsMap[uid].wins++;
+  GameDB.updateDouniu(uid, win);
 }
 
 function createDeck() {
